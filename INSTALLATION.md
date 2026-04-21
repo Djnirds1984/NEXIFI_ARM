@@ -7,7 +7,7 @@
 Run this command in your terminal to install all dependencies and the AJC PISOWIFI system:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Djnirds1984/AJC-PISOWIFI-Management-System/main/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/Djnirds1984/NEXIFI_ARM/main/install.sh | sudo bash
 ```
 
 ### Manual Installation
@@ -20,7 +20,7 @@ curl -sSL https://raw.githubusercontent.com/Djnirds1984/AJC-PISOWIFI-Management-
 
 2. **Clone the Repository**:
    ```bash
-   git clone https://github.com/Djnirds1984/AJC-PISOWIFI-Management-System.git
+   git clone https://github.com/Djnirds1984/NEXIFI_ARM.git
    cd AJC-PISOWIFI-Management-System
    ```
 
