@@ -152,7 +152,7 @@ echo -e "${GREEN}[5/8] Preparing Project Directory...${NC}"
 INSTALL_DIR="/opt/ajc-pisowifi"
 if [ ! -d "$INSTALL_DIR" ]; then
     echo -e "${YELLOW}Cloning repository...${NC}"
-    git clone https://github.com/Djnirds1984/AJC-PISOWIFI-Management-System.git "$INSTALL_DIR"
+    git clone https://github.com/Djnirds1984/NEXIFI_ARM.git "$INSTALL_DIR"
 fi
 cd "$INSTALL_DIR"
 
