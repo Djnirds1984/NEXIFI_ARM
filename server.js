@@ -6970,6 +6970,12 @@ async function bootupRestore(isRestricted = false) {
     for (const s of sessions) await network.whitelistMAC(s.mac, s.ip);
   }
   
+  // 6. Start USB-to-LAN Monitor (auto-detect and bridge USB LAN adapters)
+  try {
+    console.log('[AJC] Starting USB-to-LAN auto-detection monitor...');
+    await network.startUsbLanMonitor();
+  } catch (e) { console.error('[AJC] USB-LAN Monitor Failed:', e.message); }
+  
   console.log('[AJC] System Restoration Complete.');
 }
 
