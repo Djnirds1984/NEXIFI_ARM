@@ -4234,14 +4234,15 @@ app.post('/api/nodemcu/authenticate', async (req, res) => {
 // Background task to monitor NodeMCU health
 const deviceStatusCache = new Map();
 
-setInterval(async () => {
+const _nodemcuHealthTimer = setInterval(async () => {
   try {
     const devicesResult = await db.get('SELECT value FROM config WHERE key = ?', ['nodemcuDevices']);
     if (!devicesResult?.value) return;
     
     const devices = JSON.parse(devicesResult.value);
     const now = new Date().getTime();
-    const OFFLINE_THRESHOLD = 15000; // Lowered to 15 seconds for faster detection (1.5x heartbeat)
+    // Offline threshold: 1.5x the health check interval (45s)
+    const OFFLINE_THRESHOLD = 45000;
 
     devices.forEach(device => {
       if (device.status !== 'accepted') return;
@@ -4263,7 +4264,8 @@ setInterval(async () => {
   } catch (err) {
     // Silent fail for background task
   }
-}, 5000); // Check every 5 seconds
+}, 30000); // Check every 30 seconds (was 5s — reduced for CPU savings)
+if (_nodemcuHealthTimer.unref) _nodemcuHealthTimer.unref();
 
 // NodeMCU pulse reporting API
 app.post('/api/nodemcu/pulse', async (req, res) => {
@@ -7224,13 +7226,21 @@ app.post('/api/vouchers/activate', async (req, res) => {
 });
 
 function startBackgroundTimers() {
-  setInterval(() => { refreshPPPoEExpiredSettings(); }, 30000);
+  const _pppoeRefreshTimer = setInterval(() => { refreshPPPoEExpiredSettings(); }, 30000);
+  if (_pppoeRefreshTimer.unref) _pppoeRefreshTimer.unref();
   refreshPPPoEExpiredSettings();
 
-  setInterval(async () => {
+  // Session countdown — ticks every 3s instead of 1s to reduce CPU
+  // Counts down by 3 each tick (same effective rate, 1/3 the DB writes)
+  const SESSION_TICK_SECONDS = 3;
+  const sessionCountdownTimer = setInterval(async () => {
     try {
+      // Quick check: any active sessions at all? Skip DB write if none.
+      const activeCount = await db.get('SELECT COUNT(*) as cnt FROM sessions WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)');
+      if (!activeCount || activeCount.cnt === 0) return;
+
       await db.run(
-        'UPDATE sessions SET remaining_seconds = remaining_seconds - 1 WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)'
+        `UPDATE sessions SET remaining_seconds = remaining_seconds - ${SESSION_TICK_SECONDS} WHERE remaining_seconds > 0 AND (is_paused = 0 OR is_paused IS NULL)`
       );
 
       const expired = await db.all(
@@ -7241,16 +7251,25 @@ function startBackgroundTimers() {
         await db.run('UPDATE sessions SET expired_at = ? WHERE mac = ?', [Date.now(), s.mac]);
       }
     } catch (e) { console.error(e); }
-  }, 1000);
+  }, SESSION_TICK_SECONDS * 1000);
+  if (sessionCountdownTimer.unref) sessionCountdownTimer.unref();
 
-  setInterval(async () => {
+  const tcCleanupTimer = setInterval(async () => {
     try {
+      // Quick check: only run TC cleanup when there are (or were) sessions
+      const totalSessions = await db.get('SELECT COUNT(*) as cnt FROM sessions');
+      if (!totalSessions || totalSessions.cnt === 0) return;
+
       const inactiveSessions = await db.all('SELECT mac, ip FROM sessions WHERE remaining_seconds <= 0');
       for (const session of inactiveSessions) {
         await network.removeSpeedLimit(session.mac, session.ip);
       }
       const activeSessions = await db.all('SELECT ip FROM sessions WHERE remaining_seconds > 0');
       const activeIPs = new Set(activeSessions.map(s => s.ip));
+
+      // Skip expensive tc filter scan if no speed limits are active
+      if (activeIPs.size === 0 && inactiveSessions.length === 0) return;
+
       const { stdout: interfacesOutput } = await execPromise(`ip link show | grep -E "eth|wlan|br|vlan" | awk '{print $2}' | sed 's/:$//'`).catch(() => ({ stdout: '' }));
       const interfaces = interfacesOutput.trim().split('\n').filter(i => i);
       for (const iface of interfaces) {
@@ -7272,7 +7291,8 @@ function startBackgroundTimers() {
         } catch (e) {}
       }
     } catch (e) { console.error('[CLEANUP] Periodic TC cleanup error:', e.message); }
-  }, 30000);
+  }, 60000);
+  if (tcCleanupTimer.unref) tcCleanupTimer.unref();
 
   const processExpiredPPPoEUsers = async () => {
     try {
@@ -7376,11 +7396,16 @@ function startBackgroundTimers() {
     }
   };
 
-  setInterval(() => { processExpiredPPPoEUsers(); }, 15000);
+  const pppoeExpireTimer = setInterval(() => { processExpiredPPPoEUsers(); }, 30000);
+  if (pppoeExpireTimer.unref) pppoeExpireTimer.unref();
   processExpiredPPPoEUsers();
 
   const syncPPPoEUserPresence = async () => {
     try {
+      // Skip if no PPPoE users in DB (idle optimization)
+      const userCount = await db.get('SELECT COUNT(*) as cnt FROM pppoe_users').catch(() => ({ cnt: 1 }));
+      if (!userCount || userCount.cnt === 0) return;
+
       const sessions = await network.getPPPoESessions().catch(() => []);
       const active = new Map();
       const activeIfaceByUsername = new Map();
@@ -7451,7 +7476,8 @@ function startBackgroundTimers() {
     } catch (e) {}
   };
 
-  setInterval(() => { syncPPPoEUserPresence(); }, 15000);
+  const pppoePresenceTimer = setInterval(() => { syncPPPoEUserPresence(); }, 30000);
+  if (pppoePresenceTimer.unref) pppoePresenceTimer.unref();
   syncPPPoEUserPresence();
 }
 
